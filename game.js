@@ -39,6 +39,45 @@
   // ease-out cubic fade from `a` down to 0 over progress p (0..1)
   const fadeCubic = (a, p) => { const q = 1 - clamp01(p); return a * q * q * q; };
 
+  // shortest distance from point (px,py) to segment (x1,y1)-(x2,y2)
+  function distToSeg(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const len2 = dx * dx + dy * dy;
+    let tt = len2 > 0 ? ((px - x1) * dx + (py - y1) * dy) / len2 : 0;
+    tt = tt < 0 ? 0 : tt > 1 ? 1 : tt;
+    const cx = x1 + tt * dx, cy = y1 + tt * dy;
+    return Math.hypot(px - cx, py - cy);
+  }
+
+  // Portion of segment lying within radius r of (cx,cy). Writes [ax,ay,bx,by]
+  // into `out` and returns true, or returns false if no part is inside.
+  function clipSegToCircle(x1, y1, x2, y2, cx, cy, r, out) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const a = dx * dx + dy * dy;
+    if (a < 1e-9) {                                   // degenerate (point)
+      if ((x1 - cx) * (x1 - cx) + (y1 - cy) * (y1 - cy) <= r * r) {
+        out[0] = x1; out[1] = y1; out[2] = x2; out[3] = y2; return true;
+      }
+      return false;
+    }
+    const fx = x1 - cx, fy = y1 - cy;
+    const b = 2 * (fx * dx + fy * dy);
+    const c = fx * fx + fy * fy - r * r;
+    const disc = b * b - 4 * a * c;
+    if (disc < 0) return false;                       // segment line misses circle
+    const sq = Math.sqrt(disc);
+    let lo = (-b - sq) / (2 * a), hi = (-b + sq) / (2 * a);
+    if (lo < 0) lo = 0;
+    if (hi > 1) hi = 1;
+    if (lo > hi) return false;                         // inside-interval is off the segment
+    out[0] = x1 + dx * lo; out[1] = y1 + dy * lo;
+    out[2] = x1 + dx * hi; out[3] = y1 + dy * hi;
+    return true;
+  }
+
+  // haptics — never throw where the API is missing (iOS Safari)
+  function buzz(p) { if (navigator.vibrate) { try { navigator.vibrate(p); } catch (_) {} } }
+
   // ───────────────────────── DOM ─────────────────────────
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d', { alpha: false });
@@ -77,10 +116,21 @@
 
   const player = { x: VW / 2, y: VH / 2, vx: 0, vy: 0, lastPingT: -999, bloomT: -999, alive: true };
 
+  // Ping wavefronts. Pooled — lifetime (~0.9s) ≈ cooldown, so very few are ever live.
+  const pings = [];
+  for (let i = 0; i < 4; i++) pings.push({ x: 0, y: 0, birth: 0, maxR: PING_MAX_R, id: 0, active: false });
+  let pingSeq = 0;
+
+  // Runtime walls: each carries its own reveal state (set on first contact per ping).
+  // { x1,y1,x2,y2, litT, litPing, oX,oY,oBirth,oMaxR }  — no per-frame allocations.
+  let walls = [];
+  const _clip = [0, 0, 0, 0];   // scratch for clipSegToCircle, reused every draw
+
   // ───────────────────────── input ─────────────────────────
   const ptr = { down: false, id: -1, startX: 0, startY: 0, curX: 0, curY: 0, startT: 0, moved: false, holding: false };
 
   function onDown(e) {
+    window.AUDIO.init();                 // unlock AudioContext on first gesture
     if (state !== STATE.PLAY) return;
     ptr.down = true;
     ptr.id = e.pointerId;
@@ -112,12 +162,38 @@
     try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
   }
 
-  // tap → ping (filled in stage 2; here it only records cadence)
+  // tap → ping. During cooldown the void does not acknowledge you: nothing happens.
   function tryPing() {
     if (t - player.lastPingT < PING_COOLDOWN) return;
     player.lastPingT = t;
     player.bloomT = t;
-    // stage 2: spawn wavefront + audio + haptics
+    spawnPing(player.x, player.y, curMaxR);
+    window.AUDIO.ping();
+    buzz(8);
+  }
+
+  function spawnPing(x, y, maxR) {
+    let p = pings.find((q) => !q.active) || pings[0];
+    p.x = x; p.y = y; p.birth = t; p.maxR = maxR; p.id = ++pingSeq; p.active = true;
+  }
+
+  // Expand wavefronts and reveal surfaces on first contact (per ping).
+  function updatePings() {
+    for (const p of pings) {
+      if (!p.active) continue;
+      const r = (t - p.birth) * PING_SPEED;
+      // walls
+      for (const w of walls) {
+        if (w.litPing === p.id) continue;                 // already revealed by this ping
+        const d = distToSeg(p.x, p.y, w.x1, w.y1, w.x2, w.y2);
+        if (d <= p.maxR && r >= d) {
+          w.litT = t; w.litPing = p.id;
+          w.oX = p.x; w.oY = p.y; w.oBirth = p.birth; w.oMaxR = p.maxR;
+        }
+      }
+      // stage 4/5: drifters + exit contact
+      if (r >= p.maxR) p.active = false;                  // ring dies at max radius
+    }
   }
 
   // ───────────────────────── player movement ─────────────────────────
@@ -162,13 +238,20 @@
     player.alive = true;
     ptr.down = false; ptr.holding = false; ptr.moved = false;
     if (elHud) { elHud.textContent = level.name; elHud.hidden = false; }
-    // stage 2/4/5: reset walls/drifters/exit/pings reveal state
+
+    walls = level.walls.map((w) => ({
+      x1: w[0], y1: w[1], x2: w[2], y2: w[3],
+      litT: -1, litPing: -1, oX: 0, oY: 0, oBirth: 0, oMaxR: 0
+    }));
+    for (const p of pings) p.active = false;
+    // stage 4/5: reset drifters / exit reveal state
   }
 
   // ───────────────────────── update ─────────────────────────
   function update(dt) {
     if (state === STATE.PLAY) {
       updatePlayer(dt);
+      updatePings();
     }
   }
 
@@ -177,10 +260,52 @@
     ctx.setTransform(S * dpr, 0, 0, S * dpr, offX * dpr, offY * dpr);
   }
 
+  function drawWall(w) {
+    if (w.litT < 0) return;
+    const p = (t - w.litT) / WALL_FADE;
+    if (p >= 1) return;
+    // Sweep clip: only the portion the ring has already passed (and within range),
+    // frozen at max radius once the ring dies — keeps walls from popping ahead of it.
+    const rNow = Math.min((t - w.oBirth) * PING_SPEED, w.oMaxR);
+    if (!clipSegToCircle(w.x1, w.y1, w.x2, w.y2, w.oX, w.oY, rNow, _clip)) return;
+    // glow pass (6px, faint) then the line (2px). No shadowBlur — layered strokes only.
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = C_FG;
+    ctx.globalAlpha = fadeCubic(0.08, p);
+    ctx.lineWidth = 6 / S;
+    ctx.beginPath(); ctx.moveTo(_clip[0], _clip[1]); ctx.lineTo(_clip[2], _clip[3]); ctx.stroke();
+    ctx.globalAlpha = fadeCubic(0.85, p);
+    ctx.lineWidth = 2 / S;
+    ctx.beginPath(); ctx.moveTo(_clip[0], _clip[1]); ctx.lineTo(_clip[2], _clip[3]); ctx.stroke();
+  }
+
+  function drawWalls() {
+    for (const w of walls) drawWall(w);
+    ctx.globalAlpha = 1;
+  }
+
+  function drawPings() {
+    ctx.strokeStyle = C_FG;
+    ctx.lineWidth = 1.5 / S;
+    for (const p of pings) {
+      if (!p.active) continue;
+      const r = (t - p.birth) * PING_SPEED;
+      if (r <= 0 || r > p.maxR) continue;
+      ctx.globalAlpha = 0.9 * (1 - r / p.maxR);          // 0.9 at birth → 0 at max radius
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
   function drawPlayer() {
-    // Bloom: full opacity after a ping, decaying back to base over 2.4s.
+    // Bloom: blooms to full after a ping, decaying back to base over 2.4s.
     const bloom = fadeCubic(1, (t - player.bloomT) / PLAYER_BLOOM);
-    let a = PLAYER_BASE_A + (1 - PLAYER_BASE_A) * bloom;
+    // Cooldown indicator: the resting glow dims slightly while you can't ping.
+    const onCooldown = (t - player.lastPingT) < PING_COOLDOWN;
+    const base = PLAYER_BASE_A * (onCooldown ? 0.85 : 1);
+    let a = base + (1 - PLAYER_BASE_A) * bloom;
     if (!player.alive) a = 0;
     if (a <= 0.001) return;
     ctx.globalAlpha = a;
@@ -210,6 +335,8 @@
 
     setWorld();
     drawDevGeometry();
+    drawWalls();
+    drawPings();
     drawPlayer();
   }
 
@@ -269,6 +396,25 @@
 
     loadLevel(0);
     requestAnimationFrame(frame);
+  }
+
+  if (DEV) {
+    window.PING_DEBUG = {
+      ping: () => tryPing(),
+      pingAt: (x, y) => { player.x = x; player.y = y; player.lastPingT = -999; tryPing(); },
+      load: (i) => loadLevel(i),
+      // Manual stepper — drives the sim under rAF throttling (headless/background tab).
+      step: (dt, n) => { n = n || 1; for (let k = 0; k < n; k++) { t += dt; update(dt); } render(); },
+      setHold: (on, x, y) => { ptr.down = !!on; ptr.holding = !!on; if (on) { ptr.curX = x; ptr.curY = y; ptr.startT = t - 1; } },
+      get: () => ({ player, pings, walls }),
+      state: () => ({
+        t, state, level: level && level.name,
+        activePings: pings.filter((p) => p.active).length,
+        litWalls: walls.filter((w) => w.litT >= 0 && (t - w.litT) < WALL_FADE).length,
+        totalWalls: walls.length,
+        player: { x: Math.round(player.x), y: Math.round(player.y) }
+      })
+    };
   }
 
   init();
