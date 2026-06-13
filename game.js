@@ -703,9 +703,15 @@
       pingAt: (x, y) => { player.x = x; player.y = y; player.lastPingT = -999; tryPing(); },
       load: (i) => loadLevel(i),
       enter: (i) => startEnter(i),
+      play: () => setState(STATE.PLAY),
       complete: () => triggerComplete(),
       die: () => triggerDeath(),
       teleport: (x, y) => { player.x = x; player.y = y; },
+      revealAll: () => {
+        for (const w of walls) { w.litT = t; w.litPing = -99; w.oX = w.x1; w.oY = w.y1; w.oBirth = t - 10; w.oMaxR = 4000; }
+        if (exit) { exit.litT = t; exit.litPing = -99; }
+        render();
+      },
       // Manual stepper — drives the sim under rAF throttling (headless/background tab).
       step: (dt, n) => { n = n || 1; for (let k = 0; k < n; k++) { t += dt; update(dt); } render(); },
       setHold: (on, x, y) => { ptr.down = !!on; ptr.holding = !!on; if (on) { ptr.curX = x; ptr.curY = y; ptr.startT = t - 1; } },
