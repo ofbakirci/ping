@@ -20,5 +20,20 @@ window.LEVELS = [
       [140, 940, 140, 1490]
     ],
     drifters: []
+  },
+  {
+    // TEMP test level (stage 4 dev) — replaced when levels 1-10 are authored.
+    name: 'TEST',
+    start: [200, 1400],
+    exit: [800, 200],
+    walls: [
+      [100, 100, 900, 100],
+      [900, 100, 900, 1500],
+      [900, 1500, 100, 1500],
+      [100, 1500, 100, 100]
+    ],
+    drifters: [
+      { path: [[500, 900], [500, 400]] }
+    ]
   }
 ];

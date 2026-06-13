@@ -31,6 +31,18 @@
   const COAST_TAU = 0.10;               // ~0.3s coast to stop on release
   const APPROACH_K = 6;                 // taper speed within ~43u of target
 
+  // Drifters
+  const DRIFTER_R = 14;
+  const DRIFTER_FADE = 1.2;             // red flash fade (a glimpse, not a study)
+  const DRIFTER_PATROL = 40;            // units/sec idle patrol
+  const DRIFTER_HUNT = 120;             // units/sec toward the echo
+  const DRIFTER_HUNT_TIME = 3;          // seconds it hunts where you were
+
+  // Exit
+  const EXIT_R = 22;
+  const EXIT_FADE = 5;                  // stays visible 5s (wants to be found)
+  const EXIT_PULSE = 1.2;              // sine pulse period
+
   const DEV = /(?:\?|&)dev(?:&|=|$)/.test(location.search);
 
   // ───────────────────────── math helpers ─────────────────────────
@@ -126,6 +138,10 @@
   let walls = [];
   const _clip = [0, 0, 0, 0];   // scratch for clipSegToCircle, reused every draw
 
+  // Runtime drifters: { x,y,vx,vy, path, wp, huntUntil, huntX,huntY, litT, litPing }
+  let drifters = [];
+  let exit = null;              // { x, y, litT, litPing }
+
   // ───────────────────────── input ─────────────────────────
   const ptr = { down: false, id: -1, startX: 0, startY: 0, curX: 0, curY: 0, startT: 0, moved: false, holding: false };
 
@@ -191,9 +207,57 @@
           w.oX = p.x; w.oY = p.y; w.oBirth = p.birth; w.oMaxR = p.maxR;
         }
       }
-      // stage 4/5: drifters + exit contact
+      // drifters: flash + provoke on first contact (within range)
+      for (const dr of drifters) {
+        if (dr.litPing === p.id) continue;
+        const near = Math.hypot(p.x - dr.x, p.y - dr.y) - DRIFTER_R;
+        if (near <= p.maxR && r >= near) {
+          dr.litT = t; dr.litPing = p.id;
+          dr.huntUntil = t + DRIFTER_HUNT_TIME;          // hunt where you were
+          dr.huntX = p.x; dr.huntY = p.y;
+          window.AUDIO.drifter();
+        }
+      }
+      // stage 5: exit contact
       if (r >= p.maxR) p.active = false;                  // ring dies at max radius
     }
+  }
+
+  // Drifters: patrol at 40 u/s; when provoked, hunt the ping's origin at 120 u/s
+  // for 3s, then return to patrol. They respect walls (slide via depenetration).
+  function updateDrifters(dt) {
+    for (const dr of drifters) {
+      let tx, ty, speed;
+      if (t < dr.huntUntil) {
+        tx = dr.huntX; ty = dr.huntY; speed = DRIFTER_HUNT;
+      } else {
+        if (Math.hypot(dr.path[dr.wp][0] - dr.x, dr.path[dr.wp][1] - dr.y) < 10) {
+          dr.wp = (dr.wp + 1) % dr.path.length;
+        }
+        tx = dr.path[dr.wp][0]; ty = dr.path[dr.wp][1]; speed = DRIFTER_PATROL;
+      }
+      const ex = tx - dr.x, ey = ty - dr.y, d = Math.hypot(ex, ey);
+      if (d > 1e-4) {
+        const step = Math.min(speed * dt, d);
+        dr.x += ex / d * step; dr.y += ey / d * step;
+      }
+      collide(dr, DRIFTER_R);
+    }
+  }
+
+  // Contact with a drifter is death.
+  function checkDeath() {
+    if (!player.alive) return;
+    const rr = (PLAYER_R + DRIFTER_R) * (PLAYER_R + DRIFTER_R);
+    for (const dr of drifters) {
+      const dx = dr.x - player.x, dy = dr.y - player.y;
+      if (dx * dx + dy * dy < rr) { triggerDeath(); return; }
+    }
+  }
+
+  // Stage 5 replaces this with the full death sequence (silence, thud, restart).
+  function triggerDeath() {
+    loadLevel(levelIndex);
   }
 
   // ───────────────────────── collision ─────────────────────────
@@ -277,15 +341,21 @@
       x1: w[0], y1: w[1], x2: w[2], y2: w[3],
       litT: -1, litPing: -1, oX: 0, oY: 0, oBirth: 0, oMaxR: 0
     }));
+    drifters = (level.drifters || []).map((d) => ({
+      x: d.path[0][0], y: d.path[0][1], vx: 0, vy: 0,
+      path: d.path, wp: 0, huntUntil: -1, huntX: 0, huntY: 0, litT: -1, litPing: -1
+    }));
+    exit = { x: level.exit[0], y: level.exit[1], litT: -1, litPing: -1 };
     for (const p of pings) p.active = false;
-    // stage 4/5: reset drifters / exit reveal state
   }
 
   // ───────────────────────── update ─────────────────────────
   function update(dt) {
     if (state === STATE.PLAY) {
       updatePlayer(dt);
+      updateDrifters(dt);
       updatePings();
+      checkDeath();
     }
   }
 
@@ -315,6 +385,21 @@
 
   function drawWalls() {
     for (const w of walls) drawWall(w);
+    ctx.globalAlpha = 1;
+  }
+
+  function drawDrifters() {
+    for (const dr of drifters) {
+      if (dr.litT < 0) continue;
+      const p = (t - dr.litT) / DRIFTER_FADE;
+      if (p >= 1) continue;
+      const a = fadeCubic(0.9, p);
+      ctx.fillStyle = C_HAZARD;
+      ctx.globalAlpha = a * 0.16;                          // faint glow disc
+      ctx.beginPath(); ctx.arc(dr.x, dr.y, DRIFTER_R * 1.7, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = a;                                 // body
+      ctx.beginPath(); ctx.arc(dr.x, dr.y, DRIFTER_R, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.globalAlpha = 1;
   }
 
@@ -356,8 +441,15 @@
     ctx.strokeStyle = C_FG;
     ctx.lineWidth = 2 / S;
     ctx.beginPath();
-    for (const w of level.walls) { ctx.moveTo(w[0], w[1]); ctx.lineTo(w[2], w[3]); }
+    for (const w of walls) { ctx.moveTo(w.x1, w.y1); ctx.lineTo(w.x2, w.y2); }
     ctx.stroke();
+    if (exit) {
+      ctx.beginPath(); ctx.arc(exit.x, exit.y, EXIT_R, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.fillStyle = C_HAZARD;
+    for (const dr of drifters) {
+      ctx.beginPath(); ctx.arc(dr.x, dr.y, DRIFTER_R, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.globalAlpha = 1;
   }
 
@@ -370,6 +462,7 @@
     setWorld();
     drawDevGeometry();
     drawWalls();
+    drawDrifters();
     drawPings();
     drawPlayer();
   }
@@ -440,13 +533,17 @@
       // Manual stepper — drives the sim under rAF throttling (headless/background tab).
       step: (dt, n) => { n = n || 1; for (let k = 0; k < n; k++) { t += dt; update(dt); } render(); },
       setHold: (on, x, y) => { ptr.down = !!on; ptr.holding = !!on; if (on) { ptr.curX = x; ptr.curY = y; ptr.startT = t - 1; } },
-      get: () => ({ player, pings, walls }),
+      get: () => ({ player, pings, walls, drifters, exit }),
       state: () => ({
         t, state, level: level && level.name,
         activePings: pings.filter((p) => p.active).length,
         litWalls: walls.filter((w) => w.litT >= 0 && (t - w.litT) < WALL_FADE).length,
         totalWalls: walls.length,
-        player: { x: Math.round(player.x), y: Math.round(player.y) }
+        player: { x: Math.round(player.x), y: Math.round(player.y) },
+        drifters: drifters.map((dr) => ({
+          x: Math.round(dr.x), y: Math.round(dr.y),
+          hunting: t < dr.huntUntil, lit: dr.litT >= 0 && (t - dr.litT) < DRIFTER_FADE
+        }))
       })
     };
   }
