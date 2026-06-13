@@ -34,7 +34,19 @@ window.AUDIO = (function () {
     feedback.connect(delay);   // the regenerating loop
     wetLP.connect(master);     // wet out
 
+    unlock();
+  }
+
+  // iOS belt-and-braces: resume the context and kick a one-sample silent buffer,
+  // both inside the user gesture, to fully lift the Web Audio lock.
+  function unlock() {
+    if (!ctx) return;
     if (ctx.state === 'suspended') ctx.resume();
+    try {
+      const b = ctx.createBuffer(1, 1, ctx.sampleRate);
+      const s = ctx.createBufferSource();
+      s.buffer = b; s.connect(ctx.destination); s.start(0);
+    } catch (_) {}
   }
 
   // A sine voice with an exponential gain envelope; optionally fed to the delay.
