@@ -1,0 +1,150 @@
+/* PING — void + light. No third color. */
+
+:root {
+  --bg: #0A0A0C;
+  --fg: #F2EDE4;
+  --hazard: #FF4444;
+  --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, monospace;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: var(--bg);
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+  font-family: var(--mono);
+  color: var(--fg);
+  /* Prevent iOS rubber-banding / pull-to-refresh. */
+  position: fixed;
+  inset: 0;
+}
+
+#c {
+  position: fixed;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+/* ---- Overlays (DOM text, drawn over the canvas) ---- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2.2rem;
+  padding: max(env(safe-area-inset-top), 24px)
+           max(env(safe-area-inset-right), 24px)
+           max(env(safe-area-inset-bottom), 24px)
+           max(env(safe-area-inset-left), 24px);
+  z-index: 10;
+}
+
+.overlay[hidden] { display: none; }
+
+/* Title screen */
+#title .title-mark {
+  font-size: clamp(2.6rem, 12vw, 5rem);
+  letter-spacing: 0.55em;
+  /* nudge right so the wide tracking stays optically centered */
+  text-indent: 0.55em;
+  font-weight: 400;
+  opacity: 0.92;
+}
+
+#title .title-sub {
+  font-size: clamp(0.7rem, 3.2vw, 0.9rem);
+  letter-spacing: 0.08em;
+  opacity: 0.4;
+  text-align: center;
+}
+
+.levels {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55em;
+  margin-top: 0.5rem;
+}
+
+.levels li {
+  font-size: clamp(0.85rem, 4vw, 1.05rem);
+  letter-spacing: 0.32em;
+  text-indent: 0.32em;
+  opacity: 0.7;
+  cursor: pointer;
+  padding: 0.15em 0.4em;
+  transition: opacity 0.25s ease;
+}
+
+.levels li.locked {
+  opacity: 0.2;
+  cursor: default;
+}
+
+.levels li:not(.locked):hover,
+.levels li:not(.locked):active {
+  opacity: 1;
+}
+
+/* In-game HUD — level name, top-left, faint */
+#hud {
+  position: fixed;
+  top: max(env(safe-area-inset-top), 14px);
+  left: max(env(safe-area-inset-left), 14px);
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  opacity: 0.3;
+  z-index: 5;
+  pointer-events: none;
+}
+
+#hud[hidden] { display: none; }
+
+/* Level-name type-in banner, centered */
+#banner {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(1.4rem, 7vw, 2.4rem);
+  letter-spacing: 0.45em;
+  text-indent: 0.45em;
+  opacity: 0;
+  z-index: 8;
+  pointer-events: none;
+  color: var(--fg);
+}
+
+/* Dev FPS counter */
+#fps {
+  position: fixed;
+  bottom: max(env(safe-area-inset-bottom), 10px);
+  right: max(env(safe-area-inset-right), 12px);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  opacity: 0.5;
+  z-index: 20;
+  pointer-events: none;
+}
+
+#fps[hidden] { display: none; }
