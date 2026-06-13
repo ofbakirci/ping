@@ -196,6 +196,41 @@
     }
   }
 
+  // ───────────────────────── collision ─────────────────────────
+  // Resolve a moving circle {x,y,vx,vy} of radius `rad` against all wall
+  // segments: push out of penetration and slide (drop the into-wall velocity
+  // component). A few passes settle concave corners without jitter.
+  function collide(o, rad) {
+    for (let pass = 0; pass < 3; pass++) {
+      let hit = false;
+      for (const w of walls) {
+        const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
+        const len2 = dx * dx + dy * dy;
+        let tt = len2 > 0 ? ((o.x - w.x1) * dx + (o.y - w.y1) * dy) / len2 : 0;
+        tt = tt < 0 ? 0 : tt > 1 ? 1 : tt;
+        const cx = w.x1 + tt * dx, cy = w.y1 + tt * dy;
+        let nx = o.x - cx, ny = o.y - cy;
+        let d = Math.hypot(nx, ny);
+        if (d >= rad) continue;
+        if (d > 1e-6) { nx /= d; ny /= d; }
+        else {                                   // dead-centre on the line: use its normal
+          const L = Math.sqrt(len2) || 1;
+          nx = -dy / L; ny = dx / L;
+          if (o.vx * nx + o.vy * ny > 0) { nx = -nx; ny = -ny; }
+        }
+        o.x += nx * (rad - d);                    // depenetrate
+        o.y += ny * (rad - d);
+        const vn = o.vx * nx + o.vy * ny;         // slide: kill inward velocity only
+        if (vn < 0) { o.vx -= vn * nx; o.vy -= vn * ny; }
+        hit = true;
+      }
+      if (!hit) break;
+    }
+    // Hard safety: never sail off the playfield into the void.
+    o.x = clamp(o.x, rad, VW - rad);
+    o.y = clamp(o.y, rad, VH - rad);
+  }
+
   // ───────────────────────── player movement ─────────────────────────
   function updatePlayer(dt) {
     // Holding begins once the press exceeds tap thresholds.
@@ -221,8 +256,7 @@
 
     player.x += player.vx * dt;
     player.y += player.vy * dt;
-
-    // stage 3: wall collision goes here
+    collide(player, PLAYER_R);
   }
 
   // ───────────────────────── level loading ─────────────────────────
