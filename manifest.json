@@ -1,0 +1,19 @@
+{
+  "name": "PING",
+  "short_name": "PING",
+  "description": "A game you play by remembering what you just saw.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#0A0A0C",
+  "theme_color": "#0A0A0C",
+  "icons": [
+    {
+      "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCA1MTIgNTEyJz48cmVjdCB3aWR0aD0nNTEyJyBoZWlnaHQ9JzUxMicgZmlsbD0nIzBBMEEwQycvPjxjaXJjbGUgY3g9JzI1NicgY3k9JzI1Nicgcj0nMTUwJyBmaWxsPSdub25lJyBzdHJva2U9JyNGMkVERTQnIHN0cm9rZS13aWR0aD0nMTgnLz48L3N2Zz4=",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -746,6 +746,12 @@
     loadUnlocked();
     goTitle();
     requestAnimationFrame(frame);
+
+    // PWA: register the service worker over http(s) only (file:// can't, and
+    // attempting it there would throw). Failures are non-fatal.
+    if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
+      navigator.serviceWorker.register('./sw.js').catch(function () {});
+    }
   }
 
   if (DEV) {
