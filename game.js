@@ -43,6 +43,17 @@
   const EXIT_FADE = 5;                  // stays visible 5s (wants to be found)
   const EXIT_PULSE = 1.2;              // sine pulse period
 
+  // Flow timings (seconds)
+  const ENTER_CHAR = 0.07;             // per-character type-in of the level name
+  const ENTER_HOLD = 0.7;
+  const ENTER_FADE = 0.5;
+  const DIE_TIME = 1.0;                // level restarts 1s after death
+  const CW_WASH = 0.8;                 // completion: the great ping washes outward
+  const CW_HOLD = 1.5;                 // ...holds the fully-revealed level
+  const CW_FADE = 1.0;                 // ...then fades to black
+  const WASH_R = 2000;                 // covers the whole field from any exit point
+  const STORE_KEY = 'ping.v1';         // versioned save key (§14)
+
   const DEV = /(?:\?|&)dev(?:&|=|$)/.test(location.search);
 
   // ───────────────────────── math helpers ─────────────────────────
@@ -95,6 +106,9 @@
   const ctx = canvas.getContext('2d', { alpha: false });
   const elHud = document.getElementById('hud');
   const elFps = document.getElementById('fps');
+  const elBanner = document.getElementById('banner');
+  const elTitle = document.getElementById('title');
+  const elLevels = document.getElementById('levels');
 
   // ───────────────────────── viewport / letterbox ─────────────────────────
   // S = CSS px per virtual unit; offX/offY = letterbox offset in CSS px; dpr backing scale.
@@ -119,12 +133,27 @@
 
   // ───────────────────────── state ─────────────────────────
   const STATE = { TITLE: 'title', ENTER: 'enter', PLAY: 'play', DIE: 'die', COMPLETE: 'complete' };
-  let state = STATE.PLAY;                 // stage 1 boots straight into play; title arrives in stage 8
+  let state = STATE.PLAY;
+  let stateStart = 0;                     // game-clock time the current state began
   let levelIndex = 0;
   let level = null;
   let curMaxR = PING_MAX_R;               // per-level ping radius (HUSH halves it)
   let t = 0;                              // game clock (seconds)
   let paused = false;
+  let unlocked = 1;                       // number of unlocked levels (persisted)
+
+  function setState(s) { state = s; stateStart = t; }
+
+  // ───────────────────────── progression (localStorage) ─────────────────────────
+  function loadUnlocked() {
+    try {
+      const v = parseInt(localStorage.getItem(STORE_KEY), 10);
+      unlocked = (v >= 1 && v <= 99) ? v : 1;
+    } catch (_) { unlocked = 1; }
+  }
+  function saveUnlocked() {
+    try { localStorage.setItem(STORE_KEY, String(unlocked)); } catch (_) {}
+  }
 
   const player = { x: VW / 2, y: VH / 2, vx: 0, vy: 0, lastPingT: -999, bloomT: -999, alive: true };
 
@@ -218,7 +247,11 @@
           window.AUDIO.drifter();
         }
       }
-      // stage 5: exit contact
+      // exit: reveal (or re-reveal) on contact — it stays lit 5s, pulsing
+      if (exit && exit.litPing !== p.id) {
+        const near = Math.hypot(p.x - exit.x, p.y - exit.y) - EXIT_R;
+        if (near <= p.maxR && r >= near) { exit.litT = t; exit.litPing = p.id; }
+      }
       if (r >= p.maxR) p.active = false;                  // ring dies at max radius
     }
   }
@@ -255,10 +288,88 @@
     }
   }
 
-  // Stage 5 replaces this with the full death sequence (silence, thud, restart).
-  function triggerDeath() {
-    loadLevel(levelIndex);
+  function checkExit() {
+    if (!player.alive || !exit) return;
+    const dx = exit.x - player.x, dy = exit.y - player.y;
+    const rr = PLAYER_R + EXIT_R;
+    if (dx * dx + dy * dy < rr * rr) triggerComplete();
   }
+
+  // ───────────────────────── flow / state transitions ─────────────────────────
+  // Death: the dot extinguishes, sound cuts to silence then a single low thud,
+  // and the level restarts after 1s. No flash, no GAME OVER. The dark takes you.
+  function triggerDeath() {
+    if (state !== STATE.PLAY) return;
+    player.alive = false;
+    setState(STATE.DIE);
+    window.AUDIO.death();
+    buzz(40);
+  }
+
+  // Level complete: unlock the next, then play the great-ping wash.
+  function triggerComplete() {
+    if (state !== STATE.PLAY) return;
+    unlocked = Math.max(unlocked, Math.min(window.LEVELS.length, levelIndex + 2));
+    saveUnlocked();
+    setState(STATE.COMPLETE);
+    window.AUDIO.complete();
+    buzz([20, 60, 20]);
+  }
+
+  function startEnter(i) {
+    loadLevel(i);
+    player.alive = true;
+    setState(STATE.ENTER);
+  }
+
+  function nextLevel() {
+    const n = levelIndex + 1;
+    if (n < window.LEVELS.length) startEnter(n);
+    else goTitle();
+  }
+
+  function setBanner(text, alpha) {
+    if (!elBanner) return;
+    elBanner.textContent = text;
+    elBanner.style.opacity = alpha;
+  }
+
+  // ENTER: type the level name onto the void, hold, fade, then play.
+  function updateEnter() {
+    const name = level.name;
+    const e = t - stateStart;
+    const typeEnd = name.length * ENTER_CHAR;
+    if (e < typeEnd + ENTER_HOLD) {
+      const chars = Math.min(name.length, Math.floor(e / ENTER_CHAR) + 1);
+      setBanner(name.slice(0, chars), 1);
+    } else if (e < typeEnd + ENTER_HOLD + ENTER_FADE) {
+      setBanner(name, 1 - (e - typeEnd - ENTER_HOLD) / ENTER_FADE);
+    } else {
+      setBanner('', 0);
+      setState(STATE.PLAY);
+    }
+  }
+
+  function updateDie() {
+    if (t - stateStart >= DIE_TIME) {
+      loadLevel(levelIndex);
+      player.alive = true;
+      setState(STATE.PLAY);
+    }
+  }
+
+  function updateComplete() {
+    if (t - stateStart >= CW_WASH + CW_HOLD + CW_FADE) nextLevel();
+  }
+
+  // Title screen hooks — stage 8 fills these in.
+  function goTitle() {
+    setState(STATE.TITLE);
+    if (elHud) elHud.hidden = true;
+    showTitle();
+  }
+  function showTitle() {}
+  function updateTitle() {}
 
   // ───────────────────────── collision ─────────────────────────
   // Resolve a moving circle {x,y,vx,vy} of radius `rad` against all wall
@@ -356,12 +467,38 @@
       updateDrifters(dt);
       updatePings();
       checkDeath();
+      checkExit();
+    } else if (state === STATE.ENTER) {
+      updateEnter();
+    } else if (state === STATE.DIE) {
+      updateDie();
+    } else if (state === STATE.COMPLETE) {
+      updateComplete();
+    } else if (state === STATE.TITLE) {
+      updateTitle(dt);
     }
   }
 
   // ───────────────────────── render ─────────────────────────
   function setWorld() {
     ctx.setTransform(S * dpr, 0, 0, S * dpr, offX * dpr, offY * dpr);
+  }
+
+  // A revealed line: 6px faint glow pass + 2px line. No shadowBlur — layered strokes.
+  function strokeRevealed(ax, ay, bx, by, a) {
+    ctx.strokeStyle = C_FG; ctx.lineCap = 'round';
+    ctx.globalAlpha = a * (0.08 / 0.85); ctx.lineWidth = 6 / S;
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+    ctx.globalAlpha = a; ctx.lineWidth = 2 / S;
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+  }
+
+  function strokeRing(cx, cy, r, a) {
+    ctx.strokeStyle = C_FG; ctx.lineCap = 'round';
+    ctx.globalAlpha = a * 0.2; ctx.lineWidth = 6 / S;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = a; ctx.lineWidth = 2 / S;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
   }
 
   function drawWall(w) {
@@ -372,19 +509,48 @@
     // frozen at max radius once the ring dies — keeps walls from popping ahead of it.
     const rNow = Math.min((t - w.oBirth) * PING_SPEED, w.oMaxR);
     if (!clipSegToCircle(w.x1, w.y1, w.x2, w.y2, w.oX, w.oY, rNow, _clip)) return;
-    // glow pass (6px, faint) then the line (2px). No shadowBlur — layered strokes only.
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = C_FG;
-    ctx.globalAlpha = fadeCubic(0.08, p);
-    ctx.lineWidth = 6 / S;
-    ctx.beginPath(); ctx.moveTo(_clip[0], _clip[1]); ctx.lineTo(_clip[2], _clip[3]); ctx.stroke();
-    ctx.globalAlpha = fadeCubic(0.85, p);
-    ctx.lineWidth = 2 / S;
-    ctx.beginPath(); ctx.moveTo(_clip[0], _clip[1]); ctx.lineTo(_clip[2], _clip[3]); ctx.stroke();
+    strokeRevealed(_clip[0], _clip[1], _clip[2], _clip[3], fadeCubic(0.85, p));
   }
 
   function drawWalls() {
     for (const w of walls) drawWall(w);
+    ctx.globalAlpha = 1;
+  }
+
+  function drawExit() {
+    if (!exit || exit.litT < 0) return;
+    const age = t - exit.litT;
+    if (age >= EXIT_FADE) return;
+    let a = 0.7 + 0.2 * Math.sin(2 * Math.PI * age / EXIT_PULSE);   // 50%..90% pulse
+    if (age > EXIT_FADE - 0.8) a *= (EXIT_FADE - age) / 0.8;        // gentle tail-out
+    strokeRing(exit.x, exit.y, EXIT_R, a);
+    ctx.globalAlpha = 1;
+  }
+
+  // The signature reward: a great ping from the exit washes the whole level
+  // visible in cream, holds, then fades to black.
+  function renderComplete() {
+    const e = t - stateStart;
+    let washR, wallA, ringA = 0;
+    if (e < CW_WASH) {
+      const x = e / CW_WASH, eo = 1 - (1 - x) * (1 - x) * (1 - x);  // ease-out
+      washR = WASH_R * eo; wallA = 0.95; ringA = 0.9 * (1 - x);
+    } else if (e < CW_WASH + CW_HOLD) {
+      washR = WASH_R; wallA = 0.95;
+    } else {
+      washR = WASH_R; wallA = 0.95 * (1 - (e - CW_WASH - CW_HOLD) / CW_FADE);
+    }
+    for (const w of walls) {
+      if (clipSegToCircle(w.x1, w.y1, w.x2, w.y2, exit.x, exit.y, washR, _clip)) {
+        strokeRevealed(_clip[0], _clip[1], _clip[2], _clip[3], wallA);
+      }
+    }
+    const ea = 0.7 + 0.2 * Math.sin(2 * Math.PI * e / EXIT_PULSE);
+    strokeRing(exit.x, exit.y, EXIT_R, ea * (wallA / 0.95));
+    if (ringA > 0) strokeRing(exit.x, exit.y, washR, ringA);
+    ctx.globalAlpha = 0.6 * (wallA / 0.95);                         // where you were
+    ctx.fillStyle = C_FG;
+    ctx.beginPath(); ctx.arc(player.x, player.y, PLAYER_R, 0, Math.PI * 2); ctx.fill();
     ctx.globalAlpha = 1;
   }
 
@@ -461,10 +627,15 @@
 
     setWorld();
     drawDevGeometry();
-    drawWalls();
-    drawDrifters();
-    drawPings();
-    drawPlayer();
+    if (state === STATE.COMPLETE) {
+      renderComplete();
+    } else {
+      drawWalls();
+      drawExit();
+      drawDrifters();
+      drawPings();
+      drawPlayer();
+    }
   }
 
   // ───────────────────────── main loop ─────────────────────────
@@ -521,7 +692,8 @@
     if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
     document.addEventListener('visibilitychange', onVisibility);
 
-    loadLevel(0);
+    loadUnlocked();
+    startEnter(0);
     requestAnimationFrame(frame);
   }
 
@@ -530,12 +702,16 @@
       ping: () => tryPing(),
       pingAt: (x, y) => { player.x = x; player.y = y; player.lastPingT = -999; tryPing(); },
       load: (i) => loadLevel(i),
+      enter: (i) => startEnter(i),
+      complete: () => triggerComplete(),
+      die: () => triggerDeath(),
+      teleport: (x, y) => { player.x = x; player.y = y; },
       // Manual stepper — drives the sim under rAF throttling (headless/background tab).
       step: (dt, n) => { n = n || 1; for (let k = 0; k < n; k++) { t += dt; update(dt); } render(); },
       setHold: (on, x, y) => { ptr.down = !!on; ptr.holding = !!on; if (on) { ptr.curX = x; ptr.curY = y; ptr.startT = t - 1; } },
       get: () => ({ player, pings, walls, drifters, exit }),
       state: () => ({
-        t, state, level: level && level.name,
+        t, state, unlocked, levelIndex, level: level && level.name,
         activePings: pings.filter((p) => p.active).length,
         litWalls: walls.filter((w) => w.litT >= 0 && (t - w.litT) < WALL_FADE).length,
         totalWalls: walls.length,
