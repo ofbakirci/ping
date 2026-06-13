@@ -735,8 +735,11 @@
     canvas.addEventListener('pointermove', onMove);
     canvas.addEventListener('pointerup', onUp);
     canvas.addEventListener('pointercancel', onUp);
-    // belt-and-braces: kill context menu / gestures the CSS doesn't catch
-    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    // Lock the screen down completely: no context menu, pinch-zoom, double-tap
+    // zoom, scroll or pull-to-refresh — the void owns the whole surface.
+    document.addEventListener('contextmenu', (e) => e.preventDefault());
+    document.addEventListener('gesturestart', (e) => e.preventDefault());
+    document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
 
     window.addEventListener('resize', resize);
     window.addEventListener('orientationchange', resize);
