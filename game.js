@@ -54,6 +54,11 @@
   const WASH_R = 2000;                 // covers the whole field from any exit point
   const STORE_KEY = 'ping.v1';         // versioned save key (§14)
 
+  // Title-screen atmospheric ping: a slow wavefront on a 6s loop, revealing nothing.
+  const TITLE_PERIOD = 6;
+  const TITLE_LIFE = 3.6;
+  const TITLE_R = 950;
+
   const DEV = /(?:\?|&)dev(?:&|=|$)/.test(location.search);
 
   // ───────────────────────── math helpers ─────────────────────────
@@ -141,6 +146,7 @@
   let t = 0;                              // game clock (seconds)
   let paused = false;
   let unlocked = 1;                       // number of unlocked levels (persisted)
+  let titleBirth = 0;                     // birth time of the current title-screen ping
 
   function setState(s) { state = s; stateStart = t; }
 
@@ -362,14 +368,42 @@
     if (t - stateStart >= CW_WASH + CW_HOLD + CW_FADE) nextLevel();
   }
 
-  // Title screen hooks — stage 8 fills these in.
+  // ───────────────────────── title screen + level select ─────────────────────────
   function goTitle() {
     setState(STATE.TITLE);
     if (elHud) elHud.hidden = true;
-    showTitle();
+    setBanner('', 0);
+    buildLevelList();
+    if (elTitle) elTitle.hidden = false;
+    titleBirth = t;
   }
-  function showTitle() {}
-  function updateTitle() {}
+
+  function buildLevelList() {
+    if (!elLevels) return;
+    elLevels.textContent = '';
+    for (let i = 0; i < window.LEVELS.length; i++) {
+      const li = document.createElement('li');
+      li.textContent = window.LEVELS[i].name;
+      if (i >= unlocked) {
+        li.classList.add('locked');                 // 20% opacity, not selectable
+      } else {
+        li.addEventListener('click', () => selectLevel(i));
+      }
+      elLevels.appendChild(li);
+    }
+  }
+
+  function selectLevel(i) {
+    if (state !== STATE.TITLE) return;
+    window.AUDIO.init();                             // unlock audio on this gesture
+    if (elTitle) elTitle.hidden = true;
+    startEnter(i);
+  }
+
+  // Slow wavefront across the void on a 6s loop — pure atmosphere.
+  function updateTitle() {
+    if (t - titleBirth >= TITLE_PERIOD) titleBirth = t;
+  }
 
   // ───────────────────────── collision ─────────────────────────
   // Resolve a moving circle {x,y,vx,vy} of radius `rad` against all wall
@@ -627,7 +661,9 @@
 
     setWorld();
     drawDevGeometry();
-    if (state === STATE.COMPLETE) {
+    if (state === STATE.TITLE) {
+      drawTitlePing();
+    } else if (state === STATE.COMPLETE) {
       renderComplete();
     } else {
       drawWalls();
@@ -636,6 +672,21 @@
       drawPings();
       drawPlayer();
     }
+  }
+
+  function drawTitlePing() {
+    const age = t - titleBirth;
+    if (age > TITLE_LIFE) return;
+    const x = age / TITLE_LIFE;
+    const r = TITLE_R * x;
+    if (r <= 1) return;
+    ctx.strokeStyle = C_FG;
+    ctx.lineWidth = 1.5 / S;
+    ctx.globalAlpha = 0.45 * (1 - x);
+    ctx.beginPath();
+    ctx.arc(VW / 2, VH / 2, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
   }
 
   // ───────────────────────── main loop ─────────────────────────
@@ -693,7 +744,7 @@
     document.addEventListener('visibilitychange', onVisibility);
 
     loadUnlocked();
-    startEnter(0);
+    goTitle();
     requestAnimationFrame(frame);
   }
 
