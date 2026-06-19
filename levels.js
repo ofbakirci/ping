@@ -336,15 +336,71 @@ window.LEVELS = [
     };
   }
 
-  var SYL_A = ['AB','BR','CR','DR','FR','GR','HA','KE','LO','MA','NE','OR','PE','QU','SE','TH','VE','WR','ZE','SH','CL','SL','TR','VR'];
-  var SYL_B = ['AKE','ASH','ELL','ORE','INE','OON','ULL','ASP','ICE','OLD','USK','ARN','EEP','OWL','IRE','UMB','END','ALT','OSS','URN','EAL','IGHT','AUNT','OAM'];
-  function genName(rnd) {
-    return (SYL_A[Math.floor(rnd() * SYL_A.length)] + SYL_B[Math.floor(rnd() * SYL_B.length)]).toUpperCase();
-  }
-  // Name for the n-th procedural level, from a seed independent of the level's geometry —
-  // so getLevelName(i) is O(1) and never has to build the maze behind it.
+  // Real, evocative one-word names in the voice of the authored ten (BREATH, TEETH,
+  // CHOIR, LIARS, HUSH): sound & silence, the body, the deep dark, dread, memory, ruin.
+  // Curated — never machine-mashed syllables. (The authored ten are deliberately absent.)
+  var NAMES = [
+    // sound & silence
+    'ECHO','KNELL','DRONE','MURMUR','WHISPER','SILENCE','TOLL','PEAL','HOWL','MOAN',
+    'WAIL','GROAN','SIGH','GASP','HISS','RASP','CREAK','THRUM','PULSE','THROB',
+    'CHIME','KNOCK','CLANG','TREMOR','QUAVER','MUTE','RUSTLE','SHUDDER','DIN','TOLLING',
+    // the body
+    'SPINE','MARROW','LUNG','VEIN','NERVE','SINEW','JAW','SKULL','BONE','FLESH',
+    'HEART','GULLET','TONGUE','IRIS','KNUCKLE','TENDON','NAPE','TEMPLE','SPLEEN','WRIST',
+    'FIST','HEEL','RIB','GUT',
+    // the deep dark
+    'VOID','ABYSS','DEPTH','GLOOM','MURK','SHADE','SHADOW','DUSK','PITCH','UMBRA',
+    'NADIR','HOLLOW','CHASM','PENUMBRA','GLOAM','TWILIGHT','NIGHT','BLACK',
+    // water & descent
+    'DEEP','FATHOM','TIDE','TROUGH','CURRENT','UNDERTOW','DRIFT','BRINE','TRENCH','SILT',
+    'DREDGE','WAKE','EBB','SWELL','RIPTIDE','MAELSTROM','BALLAST','KEEL','HULL','ANCHOR',
+    'SONAR','SOUNDING',
+    // fear & the hunt
+    'DREAD','TERROR','MENACE','THREAT','OMEN','PORTENT','LURK','STALK','PREY','HUNT',
+    'SNARE','TRAP','LURE','FANG','MAW','CLAW','GNASH','AMBUSH','QUARRY','PANIC',
+    'FRIGHT','FLINCH','COWER','PRECIPICE','VENOM','SPITE',
+    // memory & the ghost
+    'MEMORY','TRACE','GHOST','RELIC','REMNANT','VESTIGE','REVERIE','DREAM','REVENANT','PHANTOM',
+    'WRAITH','SPECTER','HAUNT','RECALL','OBLIVION','MIRAGE','FORGET',
+    // the maze
+    'MAZE','WARREN','CORRIDOR','PASSAGE','THRESHOLD','GATE','VAULT','CRYPT','CATACOMB','TUNNEL',
+    'SHAFT','ALCOVE','RECESS','NICHE','CHAMBER','CELL','KEEP','SPIRAL','COIL','KNOT',
+    'OUBLIETTE','CLOISTER','GALLERY','LABYRINTH','BURROW','DEN','LAIR','NEST','HIVE','CULVERT',
+    'CISTERN','CONDUIT','SLUICE','GRATE','PORTAL',
+    // decay & ruin
+    'RUIN','DECAY','ROT','RUST','ASH','EMBER','CINDER','DUST','WANE','FADE',
+    'BLIGHT','WITHER','TARNISH','MOLD','GRIME','SOOT','CHAR','WRECK','RUBBLE','DEBRIS',
+    'HUSK','SHELL','SHARD','CORROSION',
+    // mood
+    'LOSS','GRIEF','SORROW','ACHE','YEARN','LONGING','REGRET','MERCY','DOUBT','DESPAIR',
+    'RESOLVE','DESCENT','VERTIGO','UNREST','MALICE','RANCOR','GRUDGE','WRATH','FURY','RAGE',
+    'THIRST','HUNGER','FAMINE','FEVER',
+    // air & cold
+    'SHROUD','VEIL','GAUZE','MIST','FOG','HAZE','SMOKE','FROST','RIME','SLEET',
+    'VAPOR','FUME','CHILL','NUMB','SHIVER',
+    // the scarce light
+    'SPARK','GLEAM','GLINT','FLICKER','GLOW','BEACON','SIGNAL','FLARE','KINDLE','GUTTER',
+    // stone
+    'STONE','GRANITE','SLATE','FLINT','OBSIDIAN','BASALT','SCREE','MONOLITH','CAIRN','SLAB',
+    // the things in the dark
+    'BROOD','HORDE','THRONG','SHOAL','FLOCK','PACK','SPAWN','KRAKEN','SERPENT','VERMIN',
+    'LOCUST','MOTH','LEECH','LAMPREY','ANGLER','EEL','MAGGOT','CARRION',
+    // groping forward
+    'GROPE','FUMBLE','STUMBLE','FALTER','WAVER','REACH','CLENCH','GRASP','CLUTCH','LURCH'
+  ];
+  // Deterministic shuffle so the first NAMES.length procedural levels are all distinct;
+  // beyond that a name only recurs ~NAMES.length levels apart — never adjacent.
+  var NAME_ORDER = (function () {
+    var order = NAMES.slice(), rnd = mulberry32(0x50494E47 >>> 0);   // seed 'PING'
+    for (var i = order.length - 1; i > 0; i--) {
+      var j = Math.floor(rnd() * (i + 1)), tmp = order[i]; order[i] = order[j]; order[j] = tmp;
+    }
+    return order;
+  })();
+  // Name for the n-th procedural level — independent of geometry, so getLevelName(i) is
+  // O(1) and never has to build the maze behind it.
   function nameFor(n) {
-    return genName(mulberry32(((n + 1) * 2246822519) >>> 0));
+    return NAME_ORDER[((n % NAME_ORDER.length) + NAME_ORDER.length) % NAME_ORDER.length];
   }
 
   // Build the n-th procedural level (n = 0 means the first level after the authored set).
