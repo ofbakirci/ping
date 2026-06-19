@@ -307,8 +307,20 @@ window.LEVELS = [
       if (wallS[rr3][c3] && rr3 < GH - 1) walls.push([cellX(c3), cellY(rr3 + 1), cellX(c3 + 1), cellY(rr3 + 1)]);
       if (wallE[rr3][c3] && c3 < GW - 1) walls.push([cellX(c3 + 1), cellY(rr3), cellX(c3 + 1), cellY(rr3 + 1)]);
     }
+    // Degree of each cell = how many of its 4 edges are open. A cell with degree <= 1
+    // is a dead-end stub: the worst place to strand a drifter (you have to enter the
+    // pocket to reveal it, and there's no room to dodge). build() avoids these.
+    function degree(c, r) {
+      var d = 0;
+      if (r > 0 && !wallS[r - 1][c]) d++;             // north edge open
+      if (r < GH - 1 && !wallS[r][c]) d++;            // south edge open
+      if (c > 0 && !wallE[r][c - 1]) d++;             // west edge open
+      if (c < GW - 1 && !wallE[r][c]) d++;            // east edge open
+      return d;
+    }
     return {
       GW: GW, GH: GH, cw: cw, ch: ch, walls: walls, cellX: cellX, cellY: cellY,
+      degree: degree,
       start: [cellX(0) + cw / 2, cellY(GH - 1) + ch / 2],
       exit: [cellX(GW - 1) + cw / 2, cellY(0) + ch / 2]
     };
@@ -331,12 +343,18 @@ window.LEVELS = [
       var cells = [];
       for (var r = 0; r < L.GH; r++) for (var c = 0; c < L.GW; c++) cells.push([c, r]);
       for (var i = cells.length - 1; i > 0; i--) { var j = Math.floor(rnd() * (i + 1)); var tmp = cells[i]; cells[i] = cells[j]; cells[j] = tmp; }
+      var exitC = L.GW - 1, exitR = 0;                 // exit always sits top-right
       var drifters = [];
       for (var k = 0; k < cells.length && drifters.length < nDrift; k++) {
         var cc = cells[k][0], rr = cells[k][1];
         var x = L.cellX(cc) + L.cw / 2, y = L.cellY(rr) + L.ch / 2;
         if (clearance(x, y, L.walls) < DRIFTER_R + 4) continue;
         if (Math.hypot(x - L.start[0], y - L.start[1]) < 200) continue;   // never crowd the spawn
+        if (L.degree(cc, rr) <= 1) continue;          // no dead-end stubs — nowhere to dodge
+        // Keep clear of the exit: not the exit cell, not an orthogonal neighbour of it.
+        var manhExit = Math.abs(cc - exitC) + Math.abs(rr - exitR);
+        if (manhExit <= 1) continue;
+        if (Math.hypot(x - L.exit[0], y - L.exit[1]) < 200) continue;     // doorstep guard (distance)
         var p2 = [x, y];
         var adj = [[cc, rr - 1], [cc, rr + 1], [cc - 1, rr], [cc + 1, rr]];
         for (var a = 0; a < adj.length; a++) {
