@@ -69,23 +69,51 @@ function reachable(level, G) {
 
 module.exports = { reachable, clearance, distToSeg, VW, VH, PLAYER_R, DRIFTER_R };
 
+// Check one level for solvability + drifter clearance. Returns problems found.
+function checkLevel(lv, tag, verbose) {
+  let fails = 0;
+  const res = reachable(lv);
+  if (!res.ok) { console.log(`  x ${tag}: ${res.reason}`); fails++; }
+  else if (verbose) console.log(`  ok ${tag}: solvable`);
+  (lv.drifters || []).forEach((d, j) => d.path.forEach((p, k) => {
+    const cl = clearance(p[0], p[1], lv.walls);
+    if (cl < DRIFTER_R) { console.log(`    ! ${tag} drifter${j} wp${k} [${p}] clearance ${cl.toFixed(1)} < ${DRIFTER_R}`); fails++; }
+  }));
+  return fails;
+}
+
 if (require.main === module) {
-  const file = process.argv[2] || 'levels.js';
+  // Args: [file.js] [--proc N]. --proc sweeps the first N procedural levels too
+  // (uses window.getLevel from the IIFE) and prints a difficulty summary at samples.
+  const argv = process.argv.slice(2);
+  const procIdx = argv.indexOf('--proc');
+  const procN = procIdx >= 0 ? parseInt(argv[procIdx + 1], 10) || 500 : 0;
+  const file = argv.find((a, i) => a !== '--proc' && argv[i - 1] !== '--proc') || 'levels.js';
   const code = fs.readFileSync(file, 'utf8');
   const win = {};
   new Function('window', code)(win);
   const L = win.LEVELS;
   let fails = 0;
-  L.forEach((lv, i) => {
-    const res = reachable(lv);
-    const tag = `L${i + 1} ${lv.name}`;
-    if (!res.ok) { console.log(`  x ${tag}: ${res.reason}`); fails++; }
-    else console.log(`  ok ${tag}: solvable`);
-    (lv.drifters || []).forEach((d, j) => d.path.forEach((p, k) => {
-      const cl = clearance(p[0], p[1], lv.walls);
-      if (cl < DRIFTER_R) { console.log(`    ! ${tag} drifter${j} wp${k} [${p}] clearance ${cl.toFixed(1)} < ${DRIFTER_R}`); fails++; }
-    }));
-  });
-  console.log(fails ? `\n${fails} problem(s).` : `\nAll ${L.length} levels valid.`);
+  L.forEach((lv, i) => { fails += checkLevel(lv, `L${i + 1} ${lv.name}`, true); });
+  console.log(fails ? `\n${fails} problem(s) in authored levels.` : `\nAll ${L.length} authored levels valid.`);
+
+  if (procN > 0 && typeof win.getLevel === 'function') {
+    const AUTH = win.AUTHORED_COUNT || L.length;
+    console.log(`\nSweeping procedural levels ${AUTH + 1}..${AUTH + procN} (global)…`);
+    let pfails = 0;
+    const samples = new Set([1, Math.round(procN / 4), Math.round(procN / 2), Math.round(3 * procN / 4), procN]);
+    for (let g = AUTH; g < AUTH + procN; g++) {
+      const lv = win.getLevel(g);
+      if (!lv) { console.log(`  x L${g + 1}: build returned null`); pfails++; continue; }
+      pfails += checkLevel(lv, `L${g + 1} ${lv.name}`, false);
+      if (samples.has(g - AUTH + 1)) {
+        console.log(`  L${g + 1} ${lv.name}: walls=${lv.walls.length} drifters=${(lv.drifters || []).length}` +
+          ` budget=${lv.pingBudget || '∞'} radius=${lv.pingRadius || 560}`);
+      }
+    }
+    console.log(pfails ? `\n${pfails} problem(s) across ${procN} procedural levels.`
+                       : `\nAll ${procN} procedural levels solvable, drifters clear.`);
+    fails += pfails;
+  }
   process.exit(fails ? 1 : 0);
 }

@@ -2,7 +2,7 @@
  * Precaches the whole app so it runs fully offline after first load.
  * Bump CACHE to ship an update (old caches are pruned on activate).
  */
-const CACHE = 'ping-v3';
+const CACHE = 'ping-v4';
 const ASSETS = [
   './',
   './index.html',

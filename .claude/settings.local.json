@@ -9,7 +9,10 @@
       "Bash(git branch *)",
       "Bash(git commit -q -m 'Stage 1: canvas + loop + player movement *)",
       "Bash(git commit -q -m 'Stage 2: ping wavefront + wall reveal *)",
-      "Bash(git commit -q -m 'Stage 3: collision *)"
+      "Bash(git commit -q -m 'Stage 3: collision *)",
+      "Bash(time node tools/validate.js levels.js --proc 490)",
+      "Bash(node -e ' *)",
+      "Bash(git commit -q -m ' *)"
     ]
   }
 }

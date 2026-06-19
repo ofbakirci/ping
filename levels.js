@@ -198,11 +198,21 @@ window.LEVELS = [
  * The ten above are hand-authored. Past them, PING keeps going forever: levels are
  * generated on demand in the same grammar (clean orthogonal corridors, real routes,
  * guaranteed solvable) with procedural one-word names. The player never sees a seam —
- * the level column just continues. Difficulty climbs through architecture, drifter
- * count and a tightening ping budget; never through speed or timers (there is no clock).
+ * the level column just continues.
+ *
+ * Difficulty climbs steadily from the first procedural level (global level 11) to a
+ * designed peak at level 500, then holds at peak for anyone who goes deeper. Four levers,
+ * every one of them architecture + placement (per spec §7 — never speed, never timers):
+ *   • the maze grows wider and much taller (longer routes, more corridors to remember,
+ *     more dead ends to mistake for the way on);
+ *   • drifter count ramps 1 → 12;
+ *   • the ping budget tightens — its per-corridor generosity nearly halves by 500;
+ *   • half-light (HUSH's shrunken ping radius) grows more common and dimmer with depth.
  *
  * Determinism: level N always generates identically (seeded PRNG), so a player's
- * progress and a shared "I reached LEVEL 38" mean the same level every time.
+ * progress and a shared "I reached LEVEL 38" mean the same level every time. Names are
+ * seeded independently of geometry, so the level column can show any name without
+ * building the level behind it (keeps the title screen instant at deep progress).
  */
 (function () {
   'use strict';
@@ -269,10 +279,10 @@ window.LEVELS = [
   // Carve a spanning maze (recursive backtracker) and render unconnected cell edges
   // as wall segments. A spanning maze is connected by construction → always solvable;
   // a few random extra openings add the multi-route feel of the authored levels.
-  function carve(seed) {
+  function carve(seed, GW, GH) {
     var rnd = mulberry32(seed);
-    var GW = 4 + Math.floor(rnd() * 3);        // 4..6 columns
-    var GH = 6 + Math.floor(rnd() * 4);        // 6..9 rows
+    if (!GW) GW = 4 + Math.floor(rnd() * 3);   // 4..6 columns (fallback if no size hint)
+    if (!GH) GH = 6 + Math.floor(rnd() * 4);   // 6..9 rows   (fallback if no size hint)
     var M = 70;
     var cw = (VW - 2 * M) / GW, ch = (VH - 2 * M) / GH;
     var cellX = function (c) { return M + c * cw; };
@@ -331,15 +341,25 @@ window.LEVELS = [
   function genName(rnd) {
     return (SYL_A[Math.floor(rnd() * SYL_A.length)] + SYL_B[Math.floor(rnd() * SYL_B.length)]).toUpperCase();
   }
+  // Name for the n-th procedural level, from a seed independent of the level's geometry —
+  // so getLevelName(i) is O(1) and never has to build the maze behind it.
+  function nameFor(n) {
+    return genName(mulberry32(((n + 1) * 2246822519) >>> 0));
+  }
 
   // Build the n-th procedural level (n = 0 means the first level after the authored set).
   function build(n) {
+    // t: depth along the difficulty curve. 0 at the first procedural level (global L=11),
+    // 1 at L=500, then clamped — anyone deeper plays at the designed peak.
+    var t = Math.max(0, Math.min(1, (n + 1) / 490));
     for (var attempt = 0; attempt < 14; attempt++) {
       var seed = ((n + 1) * 2654435761 ^ (attempt * 40503)) >>> 0;
       var rnd = mulberry32(seed);
-      var L = carve(seed);
-      var diff = n;
-      var nDrift = Math.min(6, 1 + Math.floor(diff / 2));
+      // Maze grows with depth (with a little per-level jitter so a tier isn't uniform).
+      var GW = Math.min(10, 4 + Math.round(t * 5) + Math.floor(rnd() * 2));   // 4 → 9..10
+      var GH = Math.min(16, 6 + Math.round(t * 8) + Math.floor(rnd() * 3));   // 6 → 14..16
+      var L = carve(seed, GW, GH);
+      var nDrift = Math.min(12, 1 + Math.round(t * 11));   // 1 → 12
       var cells = [];
       for (var r = 0; r < L.GH; r++) for (var c = 0; c < L.GW; c++) cells.push([c, r]);
       for (var i = cells.length - 1; i > 0; i--) { var j = Math.floor(rnd() * (i + 1)); var tmp = cells[i]; cells[i] = cells[j]; cells[j] = tmp; }
@@ -365,12 +385,18 @@ window.LEVELS = [
         }
         drifters.push({ path: [[x, y], p2] });
       }
-      var lvl = { name: genName(rnd), start: L.start, exit: L.exit, walls: L.walls, drifters: drifters, procedural: true };
-      // Tightening ping budget — unlimited at first, then scarce. The dot dims as you spend it.
-      var budget = diff < 3 ? 0 : Math.max(6, 16 - Math.floor(diff / 2));
-      if (budget > 0) lvl.pingBudget = budget;
-      // Occasional half-light level past the deep end (echoes HUSH).
-      if (diff >= 8 && (n % 3 === 2)) lvl.pingRadius = Math.round(280 + rnd() * 120);
+      var lvl = { name: nameFor(n), start: L.start, exit: L.exit, walls: L.walls, drifters: drifters, procedural: true };
+      // Ping budget: unlimited for the first few (a gentle hand-off from the authored set),
+      // then a span-aware allowance that tightens with depth. Scaled to the maze so a fair
+      // route is never impossible, but its per-corridor generosity nearly halves by L500.
+      // The resting dot dims as you spend it — no bars, no numbers.
+      if (n >= 3) {
+        var span = GW + GH;
+        lvl.pingBudget = Math.max(5, Math.min(28, Math.round(span * (1.8 - 1.1 * t))));
+      }
+      // Half-light (echoes HUSH): more common and dimmer the deeper you go, floored well
+      // above useless. Probabilistic, so there is variety — and the occasional full breath.
+      if (t > 0.12 && rnd() < (0.12 + 0.45 * t)) lvl.pingRadius = Math.round(430 - 170 * t);  // ~410 → 260
       if (solvable(lvl)) return lvl;
     }
     return null;   // (statistically never happens; caller falls back gracefully)
@@ -387,6 +413,7 @@ window.LEVELS = [
     return cache[n];
   };
   window.getLevelName = function (i) {
-    return window.getLevel(i).name;
+    if (i < AUTHORED) return window.LEVELS[i].name;
+    return nameFor(i - AUTHORED);          // no build — the level column stays instant
   };
 })();
