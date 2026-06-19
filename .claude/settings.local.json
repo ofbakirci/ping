@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /Users/ofbakirci/apps_ofb/ping log --oneline)",
+      "Bash(git init *)",
+      "Bash(git config *)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(git add *)",
+      "Bash(git branch *)",
+      "Bash(git commit -q -m 'Stage 1: canvas + loop + player movement *)",
+      "Bash(git commit -q -m 'Stage 2: ping wavefront + wall reveal *)",
+      "Bash(git commit -q -m 'Stage 3: collision *)"
+    ]
+  }
+}

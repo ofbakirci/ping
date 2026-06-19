@@ -111,22 +111,43 @@ window.LEVELS = [
       [780, 1190, 390, 1190], [390, 1190, 390, 430], [210, 1430, 90, 1430], [510, 430, 390, 430]
     ],
     drifters: [
-      { path: [[810, 1220], [360, 1220], [360, 340], [660, 340]] }
+      // Patrols the open spiral lane (inset from both wall rings so collision
+      // never jams it in a corner). Lane runs ~x[300,750], ~y[290,1280].
+      { path: [[300, 1280], [750, 1280], [750, 290], [450, 290], [450, 740]] }
     ]
   },
 
   {
-    // 8. LIARS — one exit. A grand central chamber feels like the way out; it is a dead
-    // end. The real exit is a side gap low in the corridor. Cruelty through architecture.
+    // 8. LIARS — one exit. You rise up a central spine toward a grand, wide chamber
+    // at the top that SCREAMS "exit" — open, symmetric, inviting. It is sealed: a dead
+    // end. The true exit is a humble side gap two-thirds of the way up, easy to ping
+    // straight past on your way to the lie. Cruelty through architecture, not mechanics.
     name: 'LIARS',
     start: [500, 1430],
-    exit: [870, 1190],
+    exit: [820, 560],
     walls: [
       [60, 100, 940, 100], [940, 100, 940, 1500], [940, 1500, 60, 1500], [60, 1500, 60, 100],
-      [60, 300, 400, 300], [600, 300, 940, 300],       // grand top chamber floor (corridor mouth open)
-      [400, 300, 400, 1500],                           // corridor left wall
-      [600, 300, 600, 1150], [600, 1230, 600, 1500],   // corridor right wall, humble gap y[1150,1230]
-      [600, 1150, 940, 1150], [600, 1230, 940, 1230]   // side passage to the true exit
+
+      // Central rising spine (the obvious path up). Left wall solid; right wall solid
+      // EXCEPT a thin gap at y[700,760] — the only true way out.
+      [380, 1380, 380, 460], [620, 1380, 620, 760], [620, 700, 620, 460],
+
+      // The GRAND LIE: a wide bright chamber crowning the top of the spine. Symmetric,
+      // beckoning — and sealed. Its only mouth is the spine you climbed; there is no
+      // way out of it. The eye is drawn straight here.
+      [380, 460, 180, 460], [180, 460, 180, 240], [180, 240, 820, 240],
+      [820, 240, 820, 460], [820, 460, 620, 460],
+
+      // The humble TRUTH: a cramped dogleg reached through the gap at y[700,760].
+      // Slip right through the gap into a low corridor (y[700,760], x[620,900]); the
+      // corridor's ceiling has a second opening at x[760,900] that climbs into the
+      // pocket holding the real exit [820,560]. Two humble gaps, easily ping-skipped.
+      // Corridor floor:
+      [620, 760, 900, 760],
+      // Corridor ceiling with a gap at x[760,900] (open up into the pocket):
+      [620, 700, 760, 700],
+      // Pocket walls: far-right, top cap, and left divider down to the ceiling gap.
+      [900, 760, 900, 460], [900, 460, 740, 460], [740, 460, 740, 700]
     ],
     drifters: []
   },
@@ -141,8 +162,8 @@ window.LEVELS = [
       [60, 1050, 320, 1050], [680, 520, 940, 520], [430, 820, 570, 820]
     ],
     drifters: [
-      { path: [[200, 1250], [200, 520]] },
-      { path: [[800, 1250], [800, 520]] },
+      { path: [[200, 1250], [200, 560]] },
+      { path: [[800, 1250], [800, 580]] },
       { path: [[330, 950], [670, 950]] },
       { path: [[330, 380], [670, 380]] },
       { path: [[450, 680], [600, 680]] }
