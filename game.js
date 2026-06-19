@@ -779,8 +779,10 @@
     requestAnimationFrame(frame);
 
     // PWA: register the service worker over http(s) only (file:// can't, and
-    // attempting it there would throw). Failures are non-fatal.
-    if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
+    // attempting it there would throw). Failures are non-fatal. Skip it inside a
+    // native Capacitor wrapper (App Store / Play Store build): the files are already
+    // bundled locally, so the SW is redundant and its cache only risks staleness.
+    if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0 && !window.Capacitor) {
       navigator.serviceWorker.register('./sw.js').catch(function () {});
     }
   }

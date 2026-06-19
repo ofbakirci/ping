@@ -12,7 +12,16 @@
       "Bash(git commit -q -m 'Stage 3: collision *)",
       "Bash(time node tools/validate.js levels.js --proc 490)",
       "Bash(node -e ' *)",
-      "Bash(git commit -q -m ' *)"
+      "Bash(git commit -q -m ' *)",
+      "Bash(gh api *)",
+      "Bash(npm -v)",
+      "Bash(xcode-select -p)",
+      "Bash(xcodebuild -version)",
+      "Bash(pod --version)",
+      "Bash(brew --version)",
+      "Bash(npm init *)",
+      "Bash(npm install *)",
+      "Bash(npx cap *)"
     ]
   }
 }

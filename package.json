@@ -1,0 +1,33 @@
+{
+  "name": "ping",
+  "version": "1.0.0",
+  "description": "PING — a sonar-navigation game. Pure static web app, wrapped with Capacitor for the App Store.",
+  "main": "index.html",
+  "scripts": {
+    "sync:web": "mkdir -p www && cp index.html style.css game.js levels.js audio.js manifest.json sw.js www/",
+    "cap:sync": "npm run sync:web && npx cap sync ios",
+    "ios:assets": "npm run sync:web && npx capacitor-assets generate --ios",
+    "ios:open": "npm run cap:sync && npx cap open ios",
+    "validate": "node tools/validate.js levels.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ofbakirci/ping.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/ofbakirci/ping/issues"
+  },
+  "homepage": "https://github.com/ofbakirci/ping#readme",
+  "dependencies": {
+    "@capacitor/cli": "^8.4.1",
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/ios": "^8.4.1"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5"
+  }
+}

@@ -1,2 +1,20 @@
 .DS_Store
 __pycache__/
+
+# Node / Capacitor wrapper (the game itself stays dependency-free; this is the store shell)
+node_modules/
+# generated copy of the 7 web files (run `npm run sync:web`)
+www/
+
+# Xcode / CocoaPods build artifacts (the ios/ project itself is committed)
+ios/App/Pods/
+ios/App/build/
+ios/App/output/
+# web assets copied in by `cap copy` — regenerated, not source
+ios/App/App/public/
+# headless build output (-derivedDataPath)
+ios/build/
+# locally-downloaded xcframeworks (CI-only SPM workaround, not shipped)
+ios/_local_caps/
+DerivedData/
+*.xcuserstate
