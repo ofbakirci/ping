@@ -83,7 +83,22 @@ html, body {
   align-items: center;
   gap: 0.55em;
   margin-top: 0.5rem;
+  /* The column can grow without bound (procedural levels), so it scrolls on its
+     own instead of pushing names off the screen edge. Soft mask top & bottom so
+     entries dissolve into the void rather than hitting a hard cut. */
+  max-height: min(52vh, 560px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0.4em 1.2em;
+  scrollbar-width: none;            /* Firefox */
+  -webkit-overflow-scrolling: touch;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
+          mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
+  overscroll-behavior: contain;
+  touch-action: pan-y;             /* allow vertical scroll inside the list only */
 }
+
+.levels::-webkit-scrollbar { width: 0; height: 0; }   /* WebKit: hide scrollbar */
 
 .levels li {
   font-size: clamp(0.85rem, 4vw, 1.05rem);

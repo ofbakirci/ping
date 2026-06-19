@@ -193,3 +193,182 @@ window.LEVELS = [
     ]
   }
 ];
+
+/* ───────────────────────── procedural levels ─────────────────────────
+ * The ten above are hand-authored. Past them, PING keeps going forever: levels are
+ * generated on demand in the same grammar (clean orthogonal corridors, real routes,
+ * guaranteed solvable) with procedural one-word names. The player never sees a seam —
+ * the level column just continues. Difficulty climbs through architecture, drifter
+ * count and a tightening ping budget; never through speed or timers (there is no clock).
+ *
+ * Determinism: level N always generates identically (seeded PRNG), so a player's
+ * progress and a shared "I reached LEVEL 38" mean the same level every time.
+ */
+(function () {
+  'use strict';
+  var VW = 1000, VH = 1600, PLAYER_R = 7, DRIFTER_R = 14;
+  var AUTHORED = window.LEVELS.length;
+
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      var t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  function distToSeg(px, py, x1, y1, x2, y2) {
+    var dx = x2 - x1, dy = y2 - y1, l2 = dx * dx + dy * dy;
+    var t = l2 > 0 ? ((px - x1) * dx + (py - y1) * dy) / l2 : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+  }
+  function clearance(x, y, walls) {
+    var m = 1e9;
+    for (var i = 0; i < walls.length; i++) {
+      var w = walls[i];
+      var d = distToSeg(x, y, w[0], w[1], w[2], w[3]);
+      if (d < m) m = d;
+    }
+    return m;
+  }
+  // Grid BFS: can the player walk start -> exit? (same model as tools/validate.js)
+  function solvable(level) {
+    var G = 12, cols = Math.ceil(VW / G), rows = Math.ceil(VH / G);
+    var free = new Uint8Array(cols * rows);
+    for (var r = 0; r < rows; r++) for (var c = 0; c < cols; c++) {
+      free[r * cols + c] = clearance(c * G + G / 2, r * G + G / 2, level.walls) >= PLAYER_R ? 1 : 0;
+    }
+    function nf(c0, r0) {
+      if (c0 >= 0 && c0 < cols && r0 >= 0 && r0 < rows && free[r0 * cols + c0]) return [c0, r0];
+      for (var rad = 1; rad < 10; rad++) for (var dr = -rad; dr <= rad; dr++) for (var dc = -rad; dc <= rad; dc++) {
+        var c = c0 + dc, rr = r0 + dr;
+        if (c >= 0 && c < cols && rr >= 0 && rr < rows && free[rr * cols + c]) return [c, rr];
+      }
+      return null;
+    }
+    var s = nf(Math.floor(level.start[0] / G), Math.floor(level.start[1] / G));
+    var e = nf(Math.floor(level.exit[0] / G), Math.floor(level.exit[1] / G));
+    if (!s || !e) return false;
+    var q = [s[1] * cols + s[0]], seen = new Uint8Array(cols * rows);
+    seen[q[0]] = 1; var tgt = e[1] * cols + e[0];
+    while (q.length) {
+      var cur = q.pop(); if (cur === tgt) return true;
+      var cc = cur % cols, rr2 = (cur - cc) / cols;
+      var nb = [[cc + 1, rr2], [cc - 1, rr2], [cc, rr2 + 1], [cc, rr2 - 1]];
+      for (var k = 0; k < 4; k++) {
+        var nc = nb[k][0], nr = nb[k][1];
+        if (nc < 0 || nc >= cols || nr < 0 || nr >= rows) continue;
+        var idx = nr * cols + nc;
+        if (free[idx] && !seen[idx]) { seen[idx] = 1; q.push(idx); }
+      }
+    }
+    return false;
+  }
+
+  // Carve a spanning maze (recursive backtracker) and render unconnected cell edges
+  // as wall segments. A spanning maze is connected by construction → always solvable;
+  // a few random extra openings add the multi-route feel of the authored levels.
+  function carve(seed) {
+    var rnd = mulberry32(seed);
+    var GW = 4 + Math.floor(rnd() * 3);        // 4..6 columns
+    var GH = 6 + Math.floor(rnd() * 4);        // 6..9 rows
+    var M = 70;
+    var cw = (VW - 2 * M) / GW, ch = (VH - 2 * M) / GH;
+    var cellX = function (c) { return M + c * cw; };
+    var cellY = function (r) { return M + r * ch; };
+    var idx = function (c, r) { return r * GW + c; };
+    var visited = new Uint8Array(GW * GH);
+    var wallS = [], wallE = [];
+    for (var r = 0; r < GH; r++) { wallS.push(new Uint8Array(GW).fill(1)); wallE.push(new Uint8Array(GW).fill(1)); }
+    var stack = [[0, GH - 1]]; visited[idx(0, GH - 1)] = 1;
+    while (stack.length) {
+      var cell = stack[stack.length - 1], c = cell[0], rr = cell[1];
+      var nbrs = [];
+      if (rr > 0 && !visited[idx(c, rr - 1)]) nbrs.push([c, rr - 1, 'N']);
+      if (rr < GH - 1 && !visited[idx(c, rr + 1)]) nbrs.push([c, rr + 1, 'S']);
+      if (c > 0 && !visited[idx(c - 1, rr)]) nbrs.push([c - 1, rr, 'W']);
+      if (c < GW - 1 && !visited[idx(c + 1, rr)]) nbrs.push([c + 1, rr, 'E']);
+      if (!nbrs.length) { stack.pop(); continue; }
+      var pick = nbrs[Math.floor(rnd() * nbrs.length)], nc = pick[0], nr = pick[1], dir = pick[2];
+      if (dir === 'N') wallS[rr - 1][c] = 0;
+      if (dir === 'S') wallS[rr][c] = 0;
+      if (dir === 'E') wallE[rr][c] = 0;
+      if (dir === 'W') wallE[rr][nc] = 0;
+      visited[idx(nc, nr)] = 1; stack.push([nc, nr]);
+    }
+    var extra = Math.floor(rnd() * 3);
+    for (var x2 = 0; x2 < extra; x2++) {
+      var ec = Math.floor(rnd() * GW), er = Math.floor(rnd() * GH);
+      if (rnd() < 0.5 && er < GH - 1) wallS[er][ec] = 0; else if (ec < GW - 1) wallE[er][ec] = 0;
+    }
+    var walls = [[M, M, VW - M, M], [VW - M, M, VW - M, VH - M], [VW - M, VH - M, M, VH - M], [M, VH - M, M, M]];
+    for (var rr3 = 0; rr3 < GH; rr3++) for (var c3 = 0; c3 < GW; c3++) {
+      if (wallS[rr3][c3] && rr3 < GH - 1) walls.push([cellX(c3), cellY(rr3 + 1), cellX(c3 + 1), cellY(rr3 + 1)]);
+      if (wallE[rr3][c3] && c3 < GW - 1) walls.push([cellX(c3 + 1), cellY(rr3), cellX(c3 + 1), cellY(rr3 + 1)]);
+    }
+    return {
+      GW: GW, GH: GH, cw: cw, ch: ch, walls: walls, cellX: cellX, cellY: cellY,
+      start: [cellX(0) + cw / 2, cellY(GH - 1) + ch / 2],
+      exit: [cellX(GW - 1) + cw / 2, cellY(0) + ch / 2]
+    };
+  }
+
+  var SYL_A = ['AB','BR','CR','DR','FR','GR','HA','KE','LO','MA','NE','OR','PE','QU','SE','TH','VE','WR','ZE','SH','CL','SL','TR','VR'];
+  var SYL_B = ['AKE','ASH','ELL','ORE','INE','OON','ULL','ASP','ICE','OLD','USK','ARN','EEP','OWL','IRE','UMB','END','ALT','OSS','URN','EAL','IGHT','AUNT','OAM'];
+  function genName(rnd) {
+    return (SYL_A[Math.floor(rnd() * SYL_A.length)] + SYL_B[Math.floor(rnd() * SYL_B.length)]).toUpperCase();
+  }
+
+  // Build the n-th procedural level (n = 0 means the first level after the authored set).
+  function build(n) {
+    for (var attempt = 0; attempt < 14; attempt++) {
+      var seed = ((n + 1) * 2654435761 ^ (attempt * 40503)) >>> 0;
+      var rnd = mulberry32(seed);
+      var L = carve(seed);
+      var diff = n;
+      var nDrift = Math.min(6, 1 + Math.floor(diff / 2));
+      var cells = [];
+      for (var r = 0; r < L.GH; r++) for (var c = 0; c < L.GW; c++) cells.push([c, r]);
+      for (var i = cells.length - 1; i > 0; i--) { var j = Math.floor(rnd() * (i + 1)); var tmp = cells[i]; cells[i] = cells[j]; cells[j] = tmp; }
+      var drifters = [];
+      for (var k = 0; k < cells.length && drifters.length < nDrift; k++) {
+        var cc = cells[k][0], rr = cells[k][1];
+        var x = L.cellX(cc) + L.cw / 2, y = L.cellY(rr) + L.ch / 2;
+        if (clearance(x, y, L.walls) < DRIFTER_R + 4) continue;
+        if (Math.hypot(x - L.start[0], y - L.start[1]) < 200) continue;   // never crowd the spawn
+        var p2 = [x, y];
+        var adj = [[cc, rr - 1], [cc, rr + 1], [cc - 1, rr], [cc + 1, rr]];
+        for (var a = 0; a < adj.length; a++) {
+          var ac = adj[a][0], ar = adj[a][1];
+          if (ac < 0 || ac >= L.GW || ar < 0 || ar >= L.GH) continue;
+          var nx = L.cellX(ac) + L.cw / 2, ny = L.cellY(ar) + L.ch / 2;
+          if (clearance(nx, ny, L.walls) >= DRIFTER_R + 4 && clearance((x + nx) / 2, (y + ny) / 2, L.walls) >= DRIFTER_R) { p2 = [nx, ny]; break; }
+        }
+        drifters.push({ path: [[x, y], p2] });
+      }
+      var lvl = { name: genName(rnd), start: L.start, exit: L.exit, walls: L.walls, drifters: drifters, procedural: true };
+      // Tightening ping budget — unlimited at first, then scarce. The dot dims as you spend it.
+      var budget = diff < 3 ? 0 : Math.max(6, 16 - Math.floor(diff / 2));
+      if (budget > 0) lvl.pingBudget = budget;
+      // Occasional half-light level past the deep end (echoes HUSH).
+      if (diff >= 8 && (n % 3 === 2)) lvl.pingRadius = Math.round(280 + rnd() * 120);
+      if (solvable(lvl)) return lvl;
+    }
+    return null;   // (statistically never happens; caller falls back gracefully)
+  }
+
+  // Cache so a level isn't regenerated every title-screen build or replay.
+  var cache = {};
+  // Public accessor: getLevel(globalIndex) — authored for index < AUTHORED, else procedural.
+  window.AUTHORED_COUNT = AUTHORED;
+  window.getLevel = function (i) {
+    if (i < AUTHORED) return window.LEVELS[i];
+    var n = i - AUTHORED;
+    if (!cache[n]) cache[n] = build(n) || window.LEVELS[AUTHORED - 1];
+    return cache[n];
+  };
+  window.getLevelName = function (i) {
+    return window.getLevel(i).name;
+  };
+})();

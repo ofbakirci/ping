@@ -27,6 +27,7 @@
   const PLAYER_R = 7;
   const PLAYER_SPEED = 260;              // units/sec
   const PLAYER_BASE_A = 0.25;            // resting opacity
+  const BUDGET_DIM_FLOOR = 0.4;          // on the last budgeted ping, mote dims to 40% of base
   const ACCEL_TAU = 0.16;               // velocity smoothing while steering
   const COAST_TAU = 0.10;               // ~0.3s coast to stop on release
   const APPROACH_K = 6;                 // taper speed within ~43u of target
@@ -154,14 +155,15 @@
   function loadUnlocked() {
     try {
       const v = parseInt(localStorage.getItem(STORE_KEY), 10);
-      unlocked = (v >= 1 && v <= 99) ? v : 1;
+      unlocked = (v >= 1 && v <= 100000) ? v : 1;   // endless: no real ceiling
     } catch (_) { unlocked = 1; }
   }
   function saveUnlocked() {
     try { localStorage.setItem(STORE_KEY, String(unlocked)); } catch (_) {}
   }
 
-  const player = { x: VW / 2, y: VH / 2, vx: 0, vy: 0, lastPingT: -999, bloomT: -999, alive: true };
+  // pingsLeft: remaining pings this level. Infinity = unlimited (no budget level).
+  const player = { x: VW / 2, y: VH / 2, vx: 0, vy: 0, lastPingT: -999, bloomT: -999, alive: true, pingsLeft: Infinity, pingBudget: Infinity };
 
   // Ping wavefronts. Pooled — lifetime (~0.9s) ≈ cooldown, so very few are ever live.
   const pings = [];
@@ -213,9 +215,12 @@
     try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
   }
 
-  // tap → ping. During cooldown the void does not acknowledge you: nothing happens.
+  // tap → ping. During cooldown — or when the level's ping budget is spent — the
+  // void does not acknowledge you: nothing happens. No error, no shake. (§3)
   function tryPing() {
     if (t - player.lastPingT < PING_COOLDOWN) return;
+    if (player.pingsLeft <= 0) return;            // budget spent: the dark stays silent
+    if (player.pingsLeft !== Infinity) player.pingsLeft--;
     player.lastPingT = t;
     player.bloomT = t;
     spawnPing(player.x, player.y, curMaxR);
@@ -315,7 +320,8 @@
   // Level complete: unlock the next, then play the great-ping wash.
   function triggerComplete() {
     if (state !== STATE.PLAY) return;
-    unlocked = Math.max(unlocked, Math.min(window.LEVELS.length, levelIndex + 2));
+    // Levels are endless: always unlock the next one, no ceiling.
+    unlocked = Math.max(unlocked, levelIndex + 2);
     saveUnlocked();
     setState(STATE.COMPLETE);
     window.AUDIO.complete();
@@ -329,9 +335,7 @@
   }
 
   function nextLevel() {
-    const n = levelIndex + 1;
-    if (n < window.LEVELS.length) startEnter(n);
-    else goTitle();
+    startEnter(levelIndex + 1);   // the dark never runs out — always another level
   }
 
   function setBanner(text, alpha) {
@@ -378,12 +382,17 @@
     titleBirth = t;
   }
 
+  // The level column is endless. Render every unlocked level plus a few locked
+  // teasers ahead, so the list always invites you one step further into the dark.
+  // Names resolve through window.getLevelName (authored, then procedural — seamless).
+  const LIST_AHEAD = 3;                              // locked rows shown past the frontier
   function buildLevelList() {
     if (!elLevels) return;
     elLevels.textContent = '';
-    for (let i = 0; i < window.LEVELS.length; i++) {
+    const count = unlocked + LIST_AHEAD;
+    for (let i = 0; i < count; i++) {
       const li = document.createElement('li');
-      li.textContent = window.LEVELS[i].name;
+      li.textContent = window.getLevelName(i);
       if (i >= unlocked) {
         li.classList.add('locked');                 // 20% opacity, not selectable
       } else {
@@ -391,6 +400,14 @@
       }
       elLevels.appendChild(li);
     }
+    // Open the column scrolled to the current frontier — the newest unlocked level.
+    requestAnimationFrame(() => {
+      const items = elLevels.children;
+      const focus = items[Math.max(0, unlocked - 1)];
+      if (focus && focus.scrollIntoView) {
+        try { focus.scrollIntoView({ block: 'center' }); } catch (_) { elLevels.scrollTop = focus.offsetTop; }
+      }
+    });
   }
 
   function selectLevel(i) {
@@ -471,7 +488,7 @@
   // ───────────────────────── level loading ─────────────────────────
   function loadLevel(i) {
     levelIndex = i;
-    level = window.LEVELS[i];
+    level = window.getLevel(i);
     curMaxR = level.pingRadius || PING_MAX_R;
     player.x = level.start[0];
     player.y = level.start[1];
@@ -479,6 +496,9 @@
     player.lastPingT = -999;
     player.bloomT = -999;
     player.alive = true;
+    // Per-level ping budget (optional). Absent = unlimited, as the original spec.
+    player.pingBudget = (typeof level.pingBudget === 'number' && level.pingBudget > 0) ? level.pingBudget : Infinity;
+    player.pingsLeft = player.pingBudget;
     ptr.down = false; ptr.holding = false; ptr.moved = false;
     if (elHud) { elHud.textContent = level.name; elHud.hidden = false; }
 
@@ -623,7 +643,15 @@
     const bloom = fadeCubic(1, (t - player.bloomT) / PLAYER_BLOOM);
     // Cooldown indicator: the resting glow dims slightly while you can't ping.
     const onCooldown = (t - player.lastPingT) < PING_COOLDOWN;
-    const base = PLAYER_BASE_A * (onCooldown ? 0.85 : 1);
+    // Budget indicator: when a level limits pings, the resting mote burns dimmer the
+    // fewer you have left — your light literally fades as you spend it. Maps remaining
+    // fraction onto [BUDGET_DIM_FLOOR .. 1] of the base opacity. No bars, no numbers.
+    let budgetScale = 1;
+    if (player.pingBudget !== Infinity && player.pingBudget > 0) {
+      const frac = clamp01(player.pingsLeft / player.pingBudget);
+      budgetScale = BUDGET_DIM_FLOOR + (1 - BUDGET_DIM_FLOOR) * frac;
+    }
+    const base = PLAYER_BASE_A * budgetScale * (onCooldown ? 0.85 : 1);
     let a = base + (1 - PLAYER_BASE_A) * bloom;
     if (!player.alive) a = 0;
     if (a <= 0.001) return;
